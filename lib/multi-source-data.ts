@@ -117,35 +117,60 @@ export async function fetchHistoricalData(ticker: string, period: "1y" | "5y" = 
   const cacheKey = `history_${ticker}_${period}`
   const now = Date.now()
 
-  // Check cache
+  // Check cache first
   const cached = cache.get(cacheKey)
   if (cached && now - cached.timestamp < CACHE_TTL) {
     return cached.data
   }
 
-  await waitForYahooRateLimit()
+  try {
+    await waitForYahooRateLimit()
 
-  const endDate = Math.floor(Date.now() / 1000)
-  const years = period === "1y" ? 1 : 5
-  const startDate = endDate - years * 365 * 24 * 60 * 60
+    const endDate = Math.floor(Date.now() / 1000)
+    const years = period === "1y" ? 1 : 5
+    const startDate = endDate - years * 365 * 24 * 60 * 60
 
-  const response = await fetch(
-    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?period1=${startDate}&period2=${endDate}&interval=1d`,
-    {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        Accept: "application/json",
+    const response = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?period1=${startDate}&period2=${endDate}&interval=1d`,
+      {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          Accept: "application/json",
+        },
       },
-    },
-  )
+    )
 
-  if (!response.ok) throw new Error(`Yahoo Finance historical error: ${response.status}`)
+    if (!response.ok) {
+      if (response.status === 429 && cached) {
+        console.log(`[v0] Rate limited for ${ticker}, using stale cache`)
+        return cached.data
+      }
+      throw new Error(`Yahoo Finance historical error: ${response.status}`)
+    }
 
-  const data = await response.json()
-  const result = data?.chart?.result?.[0]
+    const data = await response.json()
+    const result = data?.chart?.result?.[0]
 
-  if (!result || !result.indicators?.quote?.[0]) throw new Error("Invalid historical data")
+    if (!result || !result.indicators?.quote?.[0]) {
+      if (cached) {
+        console.log(`[v0] Invalid data for ${ticker}, using stale cache`)
+        return cached.data
+      }
+      throw new Error("Invalid historical data")
+    }
 
-  cache.set(cacheKey, { data: result, timestamp: now })
-  return result
+    cache.set(cacheKey, { data: result, timestamp: now })
+    recordSuccess(ticker)
+    return result
+  } catch (error) {
+    recordFailure(ticker)
+    if (cached) {
+      const ageMinutes = Math.floor((now - cached.timestamp) / 60000)
+      console.log(
+        `[v0] Error fetching ${ticker}, using stale cache (${ageMinutes} min old): ${(error as Error).message}`,
+      )
+      return cached.data
+    }
+    throw error
+  }
 }
