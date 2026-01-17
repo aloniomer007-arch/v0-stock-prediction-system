@@ -267,8 +267,7 @@ export default function Home() {
         <Tabs defaultValue="predict" className="space-y-4">
           <TabsList>
             <TabsTrigger value="predict">Predictions</TabsTrigger>
-            <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
-            <TabsTrigger value="trades">Trade History</TabsTrigger>
+
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
           </TabsList>
 
